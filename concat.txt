@@ -1,0 +1,536 @@
+////// CODE
+========================================
+
+./src
+├── tests.py
+└── vm.py
+
+0 directories, 2 files
+
+///////////////////////////// src/tests.py
+# test.py
+# This file contains test cases for the Virtual Machine.
+# It assumes the VirtualMachine, OpCode, and Closure classes are defined
+# in a file named `vm.py` in the same directory.
+
+from vm import VirtualMachine, OpCode, Closure  # Assuming vm.py contains the VM
+
+
+def run_test(name, bytecode, expected_result_info=""):
+    """Helper function to run a test and print its status."""
+    print(f"--- Running Test: {name} ---")
+    print(f"Expected: {expected_result_info}")
+    vm = VirtualMachine(bytecode)
+    result = vm.run()
+    print(f"Actual Result from VM: {result}")
+    print("-" * 30)
+    return result
+
+
+def test_arithmetic():
+    """Test basic arithmetic operations: (5 + 3) * 2"""
+    bytecode = [
+        (OpCode.PUSH, 5),
+        (OpCode.PUSH, 3),
+        (OpCode.ADD,),
+        (OpCode.PUSH, 2),
+        (OpCode.MUL,),
+        (OpCode.PRINT,),  # Should print 16
+        (OpCode.HALT,),
+    ]
+    run_test("Example 1: Arithmetic", bytecode, "Output: 16, Final stack top: 16")
+
+
+def test_conditional():
+    """Test conditional jump: if 5 > 3 then push 10 else push 20"""
+    bytecode = [
+        (OpCode.PUSH, 5),
+        (OpCode.PUSH, 3),
+        (OpCode.GT,),  # 5 > 3 -> True
+        (OpCode.JUMP_IF_FALSE, "else_branch"),  # Doesn't jump
+        # Then branch
+        (OpCode.PUSH, 10),
+        (OpCode.JUMP, "end_if"),
+        "else_branch:",
+        (OpCode.PUSH, 20),
+        "end_if:",
+        (OpCode.PRINT,),  # Should print 10
+        (OpCode.HALT,),
+    ]
+    run_test("Example 2: Conditional", bytecode, "Output: 10, Final stack top: 10")
+
+
+def test_function_call_closure():
+    """Test function call using MAKE_CLOSURE: define add(a, b) and call add(7, 8)"""
+    bytecode = [
+        # Main program execution starts here
+        (OpCode.MAKE_CLOSURE, "add_func"),  # Create closure for add_func
+        (OpCode.STORE, "my_add"),  # Store closure in variable 'my_add'
+        (OpCode.PUSH, 7),  # Push arg 2 for add
+        (OpCode.PUSH, 8),  # Push arg 1 for add
+        (OpCode.LOAD, "my_add"),  # Load the closure object
+        (OpCode.CALL, 2),  # Call the closure with 2 arguments
+        (OpCode.PRINT,),  # Print the result (15)
+        (OpCode.HALT,),  # Stop
+        # Function definition for add(a, b)
+        "add_func:",
+        (OpCode.STORE, "b"),  # Store arg popped first (8) into local 'b'
+        (OpCode.STORE, "a"),  # Store arg popped second (7) into local 'a'
+        (OpCode.LOAD, "a"),
+        (OpCode.LOAD, "b"),
+        (OpCode.ADD,),
+        (OpCode.RETURN,),  # Return to caller
+    ]
+    run_test(
+        "Example 3: Function Call (Closure)",
+        bytecode,
+        "Output: 15, Final stack top: 15",
+    )
+
+
+def test_recursion_closure():
+    """Test recursion with closures: Factorial(3)"""
+    bytecode = [
+        # Main program
+        (OpCode.MAKE_CLOSURE, "factorial"),  # Create closure for factorial
+        (OpCode.STORE, "fact"),  # Store closure
+        (OpCode.PUSH, 3),  # Push argument for factorial
+        (OpCode.LOAD, "fact"),  # Load the closure
+        (OpCode.CALL, 1),  # Call factorial(3)
+        (OpCode.PRINT,),  # Print result (6)
+        (OpCode.HALT,),
+        # Function definition: factorial(n)
+        "factorial:",
+        (OpCode.STORE, "n"),  # Store argument n
+        # Base case check: if n <= 1
+        (OpCode.LOAD, "n"),
+        (OpCode.PUSH, 1),
+        (OpCode.GT,),  # is n > 1?
+        (OpCode.JUMP_IF_FALSE, "fact_base_case"),  # If n <= 1, jump to base case
+        # Recursive step: return n * factorial(n-1)
+        (OpCode.LOAD, "n"),  # Push n
+        (OpCode.LOAD, "n"),  # Push n again (for n-1 calculation)
+        (OpCode.PUSH, 1),
+        (OpCode.SUB,),  # Calculate n-1
+        # Need to load the closure again for recursive call
+        (
+            OpCode.LOAD,
+            "fact",
+        ),  # Load the 'fact' closure from the env where factorial was defined
+        (OpCode.CALL, 1),  # Call factorial(n-1) -> result is on stack
+        (OpCode.MUL,),  # Multiply n * factorial(n-1)
+        (OpCode.RETURN,),  # Return the result
+        "fact_base_case:",
+        (OpCode.PUSH, 1),  # Base case: factorial is 1
+        (OpCode.RETURN,),  # Return 1
+    ]
+    run_test(
+        "Example 4: Recursion (Factorial 3 - Closure)",
+        bytecode,
+        "Output: 6, Final stack top: 6",
+    )
+
+
+def test_scope_closure():
+    """Test variable scope with closures."""
+    bytecode = [
+        (OpCode.PUSH, 100),
+        (OpCode.STORE, "x"),  # Global x = 100
+        (OpCode.MAKE_CLOSURE, "scopetest_revised"),  # Create closure
+        (OpCode.STORE, "test_func"),  # Store it
+        (OpCode.PUSH, 5),  # Push argument
+        (OpCode.LOAD, "test_func"),  # Load closure
+        (OpCode.CALL, 1),  # Call scopetest_revised(5)
+        (OpCode.PRINT,),  # Print result (should be 105)
+        (OpCode.LOAD, "x"),  # Load global x
+        (OpCode.PRINT,),  # Print global x (should still be 100)
+        (OpCode.HALT,),
+        "scopetest_revised:",  # Function: local_x = arg + global_x; return local_x
+        (OpCode.STORE, "arg"),  # Store argument (5) in local 'arg'
+        (OpCode.LOAD, "arg"),  # Load local 'arg' (5)
+        (OpCode.LOAD, "x"),  # Load global 'x' (100) - found in defining env
+        (OpCode.ADD,),  # 5 + 100 = 105
+        (OpCode.STORE, "x"),  # Store result in *local* 'x' (105)
+        (OpCode.LOAD, "x"),  # Load local 'x' (105)
+        (OpCode.RETURN,),  # Return 105
+    ]
+    run_test(
+        "Example 5: Scope Test (Closure)",
+        bytecode,
+        "Outputs: 105, 100. Final stack top: 100",
+    )
+
+
+def test_true_closure_make_adder():
+    """Test a true closure scenario: a function returning another function (make-adder)."""
+    # Scheme equivalent:
+    # (define (make-adder x)
+    #   (lambda (y) (+ x y)))
+    # (define add5 (make-adder 5))
+    # (print (add5 10)) ; Should print 15
+    bytecode = [
+        # Define make-adder function
+        (OpCode.MAKE_CLOSURE, "make_adder_func"),
+        (OpCode.STORE, "make_adder"),
+        # Call make-adder with 5 to create add5
+        (OpCode.PUSH, 5),  # Argument 'x' for make-adder
+        (OpCode.LOAD, "make_adder"),  # Load the make-adder closure
+        (OpCode.CALL, 1),  # Call make-adder(5)
+        # The result (the inner closure for add5) is now on the stack
+        (OpCode.STORE, "add5"),  # Store the returned closure as 'add5'
+        # Call add5 with 10
+        (OpCode.PUSH, 10),  # Argument 'y' for add5
+        (OpCode.LOAD, "add5"),  # Load the add5 closure
+        (OpCode.CALL, 1),  # Call add5(10)
+        (OpCode.PRINT,),  # Print the result (15)
+        (OpCode.HALT,),
+        # --- Function Definitions ---
+        "make_adder_func:",  # Function make-adder(x)
+        (OpCode.STORE, "x"),  # Store argument 'x' in local scope
+        # Create and return the inner lambda function (closure)
+        (OpCode.MAKE_CLOSURE, "inner_adder_func"),  # Captures env containing 'x'
+        (OpCode.RETURN,),  # Return the new closure
+        "inner_adder_func:",  # Inner function lambda(y)
+        (OpCode.STORE, "y"),  # Store argument 'y' in local scope
+        (OpCode.LOAD, "x"),  # Load 'x' from defining env (make_adder_func's scope)
+        (OpCode.LOAD, "y"),  # Load 'y' from local scope
+        (OpCode.ADD,),  # x + y
+        (OpCode.RETURN,),  # Return the sum
+    ]
+    run_test(
+        "Example 6: Closure Test (Make Adder)",
+        bytecode,
+        "Output: 15, Final stack top: 15",
+    )
+
+
+if __name__ == "__main__":
+    test_arithmetic()
+    test_conditional()
+    test_function_call_closure()
+    test_recursion_closure()
+    test_scope_closure()
+    test_true_closure_make_adder()
+
+    print("\nAll tests completed.")
+
+
+///////////////////////////// src/vm.py
+import sys
+from enum import Enum
+import collections
+import copy  # Needed for deep copying environments for closures
+
+# --- Closure Representation ---
+# A simple object to hold function code reference and its defining environment
+Closure = collections.namedtuple("Closure", ["code_label", "defining_env"])
+
+
+# --- Instruction Set Definition ---
+class OpCode(Enum):
+    # Stack Manipulation
+    PUSH = 1  # Push a literal value onto the stack. Operand: value
+    POP = 2  # Pop the top value from the stack.
+
+    # Arithmetic / Logical Operations
+    ADD = 10  # Pop two values, add them, push result.
+    SUB = 11  # Pop two values, subtract top from second, push result.
+    MUL = 12  # Pop two values, multiply them, push result.
+    DIV = 13  # Pop two values, divide second by top, push result (float).
+    EQ = 20  # Pop two values, push True if equal, False otherwise.
+    LT = 21  # Pop two values, push True if second < top, False otherwise.
+    GT = 22  # Pop two values, push True if second > top, False otherwise.
+    NOT = 23  # Pop one value, push its boolean negation.
+
+    # Variable Access
+    LOAD = 30  # Load variable value onto stack. Operand: var_name
+    STORE = 31  # Pop value, store in variable. Operand: var_name
+
+    # Control Flow
+    JUMP = 40  # Unconditional jump. Operand: label
+    JUMP_IF_FALSE = 41  # Pop value, jump if false. Operand: label
+
+    # Function Calls & Closures
+    MAKE_CLOSURE = 45  # Create a closure. Operand: label
+    CALL = 50  # Call a closure. Operand: arg_count
+    RETURN = 51  # Return from function.
+
+    # VM Control
+    HALT = 60  # Stop execution.
+    PRINT = 61  # Pop value and print it (for debugging/output).
+
+
+# --- Virtual Machine Class ---
+class VirtualMachine:
+    def __init__(self, code):
+        """
+        Initializes the Virtual Machine.
+
+        Args:
+          code: A list of instructions. Each instruction is typically a tuple,
+                e.g., (OpCode.PUSH, 5), (OpCode.ADD,), (OpCode.LOAD, 'x').
+                Labels are represented as strings, e.g., 'my_label:'.
+        """
+        self.code = code
+        self.labels = self._find_labels(code)  # Map label names to instruction indices
+
+        self.operand_stack = []  # Stack for data manipulation
+        # Stack for function call frames (return_ip, caller_environment_chain)
+        self.call_stack = collections.deque()
+        self.ip = 0  # Instruction Pointer
+
+        # Environment Management: A list of dictionaries.
+        # env_chain[0] is the global scope.
+        # env_chain[-1] is the current local scope.
+        # IMPORTANT: For closures, we need to potentially copy parts of the chain.
+        self.env_chain = [{"global": {}}]  # Start with a global scope dictionary
+
+    def _find_labels(self, code):
+        """Pre-scans the code to find all labels and their instruction indices."""
+        labels = {}
+        instruction_index = 0
+        for instruction in code:
+            if isinstance(instruction, str) and instruction.endswith(":"):
+                label_name = instruction[:-1]
+                if label_name in labels:
+                    raise ValueError(f"Duplicate label found: {label_name}")
+                labels[label_name] = instruction_index
+            else:
+                # Only non-label instructions increment the effective index
+                instruction_index += 1
+        return labels
+
+    def _get_instruction_index(self, target):
+        """Gets the instruction index for a label or returns the target if it's already an index."""
+        if isinstance(target, str):
+            if target not in self.labels:
+                raise ValueError(f"Undefined label referenced: {target}")
+            return self.labels[target]
+        elif isinstance(target, int):
+            return target
+        else:
+            raise TypeError(f"Invalid jump/call target type: {type(target)}")
+
+    def _lookup(self, var_name):
+        """Looks up a variable name in the environment chain, from local to global."""
+        # Search from the innermost (local) scope outwards
+        for scope in reversed(self.env_chain):
+            if var_name in scope:
+                return scope[var_name]
+        raise NameError(f"Variable '{var_name}' not defined.")
+
+    def _store(self, var_name, value):
+        """Stores a value in the current (innermost) scope."""
+        # Ensure the innermost scope exists (should always be true after init)
+        if not self.env_chain:
+            raise RuntimeError("Environment chain is empty, cannot store.")
+        self.env_chain[-1][var_name] = value
+
+    def run(self):
+        """Executes the bytecode."""
+        effective_code = [
+            inst
+            for inst in self.code
+            if not (isinstance(inst, str) and inst.endswith(":"))
+        ]
+        code_len = len(effective_code)
+
+        while 0 <= self.ip < code_len:
+            instruction = effective_code[self.ip]
+            opcode = instruction[0]
+            args = instruction[1:]
+            current_ip = self.ip  # Store IP before potential jumps
+            self.ip += 1  # Increment IP by default
+
+            # --- Execute Opcode ---
+            try:
+                # --- Stack ---
+                if opcode == OpCode.PUSH:
+                    self.operand_stack.append(args[0])
+                elif opcode == OpCode.POP:
+                    if not self.operand_stack:
+                        raise IndexError("POP from empty stack")
+                    self.operand_stack.pop()
+
+                # --- Arithmetic/Logic ---
+                elif opcode == OpCode.ADD:
+                    if len(self.operand_stack) < 2:
+                        raise IndexError("ADD requires two operands")
+                    right = self.operand_stack.pop()
+                    left = self.operand_stack.pop()
+                    self.operand_stack.append(left + right)
+                elif opcode == OpCode.SUB:
+                    if len(self.operand_stack) < 2:
+                        raise IndexError("SUB requires two operands")
+                    right = self.operand_stack.pop()
+                    left = self.operand_stack.pop()
+                    self.operand_stack.append(left - right)
+                elif opcode == OpCode.MUL:
+                    if len(self.operand_stack) < 2:
+                        raise IndexError("MUL requires two operands")
+                    right = self.operand_stack.pop()
+                    left = self.operand_stack.pop()
+                    self.operand_stack.append(left * right)
+                elif opcode == OpCode.DIV:
+                    if len(self.operand_stack) < 2:
+                        raise IndexError("DIV requires two operands")
+                    right = self.operand_stack.pop()
+                    left = self.operand_stack.pop()
+                    if right == 0:
+                        raise ZeroDivisionError("Division by zero")
+                    self.operand_stack.append(
+                        float(left) / right
+                    )  # Always float division
+                elif opcode == OpCode.EQ:
+                    if len(self.operand_stack) < 2:
+                        raise IndexError("EQ requires two operands")
+                    right = self.operand_stack.pop()
+                    left = self.operand_stack.pop()
+                    self.operand_stack.append(left == right)
+                elif opcode == OpCode.LT:
+                    if len(self.operand_stack) < 2:
+                        raise IndexError("LT requires two operands")
+                    right = self.operand_stack.pop()
+                    left = self.operand_stack.pop()
+                    self.operand_stack.append(left < right)
+                elif opcode == OpCode.GT:
+                    if len(self.operand_stack) < 2:
+                        raise IndexError("GT requires two operands")
+                    right = self.operand_stack.pop()
+                    left = self.operand_stack.pop()
+                    self.operand_stack.append(left > right)
+                elif opcode == OpCode.NOT:
+                    if not self.operand_stack:
+                        raise IndexError("NOT requires one operand")
+                    val = self.operand_stack.pop()
+                    self.operand_stack.append(not val)
+
+                # --- Variables ---
+                elif opcode == OpCode.LOAD:
+                    var_name = args[0]
+                    value = self._lookup(var_name)
+                    self.operand_stack.append(value)
+                elif opcode == OpCode.STORE:
+                    if not self.operand_stack:
+                        raise IndexError(
+                            f"STORE '{args[0]}' requires a value on the stack"
+                        )
+                    var_name = args[0]
+                    value = self.operand_stack.pop()
+                    self._store(var_name, value)
+
+                # --- Control Flow ---
+                elif opcode == OpCode.JUMP:
+                    target_label = args[0]
+                    self.ip = self._get_instruction_index(target_label)
+                elif opcode == OpCode.JUMP_IF_FALSE:
+                    if not self.operand_stack:
+                        raise IndexError("JUMP_IF_FALSE requires a value on the stack")
+                    condition = self.operand_stack.pop()
+                    if not condition:
+                        target_label = args[0]
+                        self.ip = self._get_instruction_index(target_label)
+
+                # --- Closures & Functions ---
+                elif opcode == OpCode.MAKE_CLOSURE:
+                    code_label = args[0]
+                    # Capture the *current* environment chain.
+                    # Crucially, we might need a deep copy if scopes can be mutated
+                    # after the closure is created but before it's called.
+                    # For simplicity now, let's assume shallow copy is okay, but
+                    # be aware this can cause issues if outer scopes are modified later.
+                    # A safer approach involves more complex environment management or deep copies.
+                    # Let's use a shallow copy for now:
+                    defining_env = list(
+                        self.env_chain
+                    )  # Create a copy of the list of dicts
+                    closure = Closure(code_label=code_label, defining_env=defining_env)
+                    self.operand_stack.append(closure)
+
+                elif opcode == OpCode.CALL:
+                    arg_count = args[0]
+                    # 1. Get the closure object from the stack
+                    if not self.operand_stack:
+                        raise IndexError("CALL requires a closure on the stack")
+                    callee = self.operand_stack.pop()
+                    if not isinstance(callee, Closure):
+                        raise TypeError(
+                            f"CALL expects a Closure object, got {type(callee)}"
+                        )
+
+                    # 2. Check arity
+                    if len(self.operand_stack) < arg_count:
+                        raise IndexError(
+                            f"CALL expected {arg_count} arguments, found {len(self.operand_stack)}"
+                        )
+
+                    # 3. Save current state (return address and CALLER's environment)
+                    return_ip = self.ip  # IP already points to the next instruction
+                    self.call_stack.append((return_ip, self.env_chain))
+
+                    # 4. Create new local scope for the function
+                    new_local_scope = {}
+                    # Pop arguments (in reverse order pushed) and leave them on stack
+                    # for the function's initial STORE instructions.
+                    # (No change needed here vs previous version)
+
+                    # 5. Set up environment for the called function
+                    #    Use the closure's defining environment + the new local scope
+                    self.env_chain = callee.defining_env + [new_local_scope]
+
+                    # 6. Jump to function's code
+                    self.ip = self._get_instruction_index(callee.code_label)
+
+                elif opcode == OpCode.RETURN:
+                    if not self.call_stack:
+                        print("Warning: RETURN called from top level. Halting.")
+                        self.ip = code_len  # Halt
+                        break
+                    # Restore caller's state (IP and environment chain)
+                    return_ip, previous_env_chain = self.call_stack.pop()
+                    self.env_chain = previous_env_chain  # Restore caller's env
+                    self.ip = return_ip
+                    # Note: The return value is assumed to be left on the operand_stack by the function code
+
+                # --- VM Control ---
+                elif opcode == OpCode.HALT:
+                    print("Execution halted.")
+                    self.ip = code_len  # Ensure loop terminates
+                    break
+                elif opcode == OpCode.PRINT:
+                    if not self.operand_stack:
+                        raise IndexError("PRINT requires a value on the stack")
+                    value = self.operand_stack.pop()
+                    print("Output:", value)
+                else:
+                    raise RuntimeError(f"Unknown opcode encountered: {opcode}")
+
+            except (
+                IndexError,
+                NameError,
+                ZeroDivisionError,
+                ValueError,
+                RuntimeError,
+                TypeError,
+            ) as e:
+                print(f"\n--- Runtime Error ---")
+                print(f"Error: {e}")
+                print(f"Instruction Pointer (IP): {current_ip}")
+                print(f"Instruction: {effective_code[current_ip]}")
+                print(
+                    f"Operand Stack (Top First): {self.operand_stack[::-1]}"
+                )  # Print top first
+                print(f"Call Stack Depth: {len(self.call_stack)}")
+                print(f"Current Environment Chain Depth: {len(self.env_chain)}")
+                # print(f"Environments: {self.env_chain}") # Can be verbose
+                print(f"---------------------")
+                self.ip = code_len  # Halt execution
+                break
+
+        # Final result is top of stack, if any
+        if self.operand_stack:
+            return self.operand_stack[-1]
+        return None
+
+
+
